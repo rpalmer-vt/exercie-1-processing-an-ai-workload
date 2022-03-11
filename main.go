@@ -67,21 +67,28 @@ func cleanupOnInterrupt() {
 }
 
 func fetch(resource string, requestBody map[string]string) (responseBody string) {
+	client := &http.Client{}
 	postBody, _ := json.Marshal(requestBody)
-	response, error := http.Post(resource, "application/json", bytes.NewBuffer(postBody))
+	info(fmt.Sprint("[DEBUG]", "Post Body:", string(postBody)))
+	req, err := http.NewRequest(http.MethodPost, resource, bytes.NewBuffer(postBody))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", TOKEN))
+	req.Header.Add("Content-Type", "application/json")
+	if err == nil {
+		response, error := client.Do(req)
 
-	if error != nil {
-		fatal(errors.New(fmt.Sprint("when posting to ", resource, "err:", error)))
+		if error != nil {
+			fatal(errors.New(fmt.Sprint("when posting to ", resource, "err:", error)))
+		}
+
+		defer response.Body.Close()
+
+		body, error := ioutil.ReadAll(response.Body)
+		if error != nil {
+			fatal(errors.New(fmt.Sprint("reading response body. msg:", error)))
+		}
+
+		responseBody = string(body)
 	}
-
-	defer response.Body.Close()
-
-	body, error := ioutil.ReadAll(response.Body)
-	if error != nil {
-		fatal(errors.New(fmt.Sprint("reading response body. msg:", error)))
-	}
-
-	responseBody = string(body)
 
 	return
 }
@@ -111,7 +118,7 @@ func validateEnv() {
 	if env == "" {
 		fatal(
 			errors.New(
-				fmt.Sprint("Usage:", os.Args[0], "[dev|stage] <controller-url> <base-api-url>"),
+				fmt.Sprint("Usage:", os.Args[0], "[dev|stage] -u=<username> -p=<password> <controller-url> <base-api-url>"),
 			),
 		)
 	}
@@ -142,23 +149,29 @@ func validateEnv() {
 
 // For Local/Manual Testing - in the pipeline these values will be set in /vars/validateDeployment.groovy
 func setToken(username string, password string) {
-
+	if username == "" || password == "" {
+		fatal(errors.New("no user credentials provided"))
+	}
 	response := fetch(BASE_API_URL, map[string]string{
-		"query": fmt.Sprintf(`mutation {
-					userLogin(
-					input: { userName: %s, password: %s }
-					) {
-					token
-					organization {
-						id
-						name
-					}
-					}
-				}`,
+		"query": fmt.Sprintf(`
+		mutation {
+			userLogin(
+				input: { 
+					userName: "%s", 
+					password: "%s" 
+				}
+			) 
+			{
+				token
+				organization {
+					id
+					name
+				}
+			}
+		}`,
 			username,
 			password,
 		),
-		"operationName": "userLogin",
 	},
 	)
 
@@ -168,6 +181,7 @@ func setToken(username string, password string) {
 	if err == nil && userLoginResponse.Data.UserLogin.Token != "" {
 		TOKEN = userLoginResponse.Data.UserLogin.Token
 	} else {
+		fmt.Println()
 		handleErrResponse(response)
 	}
 
@@ -482,21 +496,22 @@ func main() {
 	}()
 
 	// get comand arguments
-	argsLen := len(os.Args)
-	if argsLen > 1 {
-		env = os.Args[1]
-	}
-	if argsLen > 2 {
-		controller_url = os.Args[2]
-	}
-	if argsLen > 3 {
-		base_api_url = os.Args[3]
-	}
 
 	username := flag.String("u", "", "user account with api access.")
 	password := flag.String("p", "", "password for user account.")
 
 	flag.Parse()
+
+	argsLen := len(flag.Args())
+	if argsLen > 0 {
+		env = flag.Args()[0]
+	}
+	if argsLen > 1 {
+		controller_url = flag.Args()[1]
+	}
+	if argsLen > 2 {
+		base_api_url = flag.Args()[2]
+	}
 
 	info(fmt.Sprint("Starting deployment validation for Environment=", env))
 	validateEnv()
