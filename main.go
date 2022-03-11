@@ -46,6 +46,7 @@ var QUERY_JOB_TIMEOUT time.Duration
 var VALIDATE_CLUSTER_ID string
 var BASE_API_URL string
 var ADHOC_CORE_JOB_ID string
+var TOKEN string
 
 //
 // --- GENERAL FUNCTIONS ---
@@ -83,6 +84,22 @@ func fetch(resource string, requestBody map[string]string) (responseBody string)
 	responseBody = string(body)
 
 	return
+}
+
+func handleErrResponse(errResponse string) {
+	var apiErrorResponseJson types.APIErrorResponse
+	err := json.Unmarshal([]byte(errResponse), &apiErrorResponseJson)
+	if err == nil {
+		var errsMsg string
+		for _, e := range apiErrorResponseJson.Errors {
+			errsMsg += fmt.Sprintf("\n%s", e.Message)
+			for _, l := range e.Locations {
+				errsMsg += fmt.Sprintf("\tL%d:%d\n\t\t\t\t\t", l.Line, l.Column)
+			}
+		}
+		//info(fmt.Sprint("[DEBUG] post body:", string(postBody)))
+		fatal(errors.New(fmt.Sprint("returned from api.", errsMsg)))
+	}
 }
 
 func validateEnv() {
@@ -125,6 +142,35 @@ func validateEnv() {
 
 // For Local/Manual Testing - in the pipeline these values will be set in /vars/validateDeployment.groovy
 func setToken(username string, password string) {
+
+	response := fetch(BASE_API_URL, map[string]string{
+		"query": fmt.Sprintf(`mutation {
+					userLogin(
+					input: { userName: %s, password: %s }
+					) {
+					token
+					organization {
+						id
+						name
+					}
+					}
+				}`,
+			username,
+			password,
+		),
+		"operationName": "userLogin",
+	},
+	)
+
+	var userLoginResponse types.UserLoginResponse
+	err := json.Unmarshal([]byte(response), &userLoginResponse)
+
+	if err == nil && userLoginResponse.Data.UserLogin.Token != "" {
+		TOKEN = userLoginResponse.Data.UserLogin.Token
+	} else {
+		handleErrResponse(response)
+	}
+
 	// If you have already fetched tokens you would like to use instead, set them here
 	// EDGE_VALIDATION_TOKEN=<your token here>
 	// API_VALIDATION_TOKEN=<your token here>
@@ -286,19 +332,7 @@ func createAdhocCoreJob() {
 		ADHOC_CORE_JOB_ID = adhocCoreJobResponseJson.Data.CreateJob.Id
 		info(fmt.Sprint("AdHoc core job id:", ADHOC_CORE_JOB_ID))
 	} else {
-		var apiErrorResponseJson types.APIErrorResponse
-		err := json.Unmarshal([]byte(adhocCoreJobResponse), &apiErrorResponseJson)
-		if err == nil {
-			var errsMsg string
-			for _, e := range apiErrorResponseJson.Errors {
-				errsMsg += fmt.Sprintf("\n%s", e.Message)
-				for _, l := range e.Locations {
-					errsMsg += fmt.Sprintf("\tL%d:%d\n\t\t\t\t\t", l.Line, l.Column)
-				}
-			}
-			//info(fmt.Sprint("[DEBUG] post body:", string(postBody)))
-			fatal(errors.New(fmt.Sprint("returned from api.", errsMsg)))
-		}
+		handleErrResponse(adhocCoreJobResponse)
 	}
 }
 
