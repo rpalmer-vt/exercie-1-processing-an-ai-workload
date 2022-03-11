@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -64,6 +65,26 @@ func cleanupOnInterrupt() {
 	deleteScheduledCoreJob()
 }
 
+func fetch(resource string, requestBody map[string]string) (responseBody string) {
+	postBody, _ := json.Marshal(requestBody)
+	response, error := http.Post(resource, "application/json", bytes.NewBuffer(postBody))
+
+	if error != nil {
+		fatal(errors.New(fmt.Sprint("when posting to ", resource, "err:", error)))
+	}
+
+	defer response.Body.Close()
+
+	body, error := ioutil.ReadAll(response.Body)
+	if error != nil {
+		fatal(errors.New(fmt.Sprint("reading response body. msg:", error)))
+	}
+
+	responseBody = string(body)
+
+	return
+}
+
 func validateEnv() {
 	// init to cmd argument with possible override by env in the future?
 	BASE_API_URL = base_api_url
@@ -103,7 +124,7 @@ func validateEnv() {
 }
 
 // For Local/Manual Testing - in the pipeline these values will be set in /vars/validateDeployment.groovy
-func setToken() {
+func setToken(username string, password string) {
 	// If you have already fetched tokens you would like to use instead, set them here
 	// EDGE_VALIDATION_TOKEN=<your token here>
 	// API_VALIDATION_TOKEN=<your token here>
@@ -118,24 +139,144 @@ func createAdhocCoreJob() {
 	startTime := time.Now().Add(time.Minute * -2).Unix()
 	stopTime := time.Now().Add(time.Minute * 15).Unix()
 	// TODO: graphql call to create adhoc job
-	postBody, _ := json.Marshal(map[string]string{
-		"query":         fmt.Sprintf("mutation createWSAJobV3JobDAGForNewTDO{ createJob(input: { clusterId: %q organizationId: 7682 target: { startDateTime:%v stopDateTime:%v } tasks: [ { engineId: \"9e611ad7-2d3b-48f6-a51b-0a1ba40fe255\" payload: { url:\"https://s3.amazonaws.com/src-veritone-tests/stage/20190505/0_40_Eric%%20Knox%%20BWC%%20Video_40secs.mp4\" } ioFolders: [ { referenceId: \"wsaOutputFolder\" mode: stream type: output } ] executionPreferences: { priority: -150} } { engineId: \"352556c7-de07-4d55-b33f-74b1cf237f25\" ioFolders: [ { referenceId: \"playbackInputFolder\" mode: stream type: input } ] executionPreferences: { parentCompleteBeforeStarting: true, priority: -150 } } { engineId: \"8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440\" payload:{ ffmpegTemplate: \"audio\" customFFMPEGProperties:{ chunkSizeInSeconds: \"20\" } } ioFolders: [ { referenceId: \"chunkAudioInputFolder\" mode: stream type: input }, { referenceId: \"chunkAudioOutputFolder\" mode: chunk type: output } ], executionPreferences: { parentCompleteBeforeStarting: true, priority: -150 } } { engineId: \"c0e55cde-340b-44d7-bb42-2e0d65e98255\" ioFolders: [ { referenceId: \"transcriptionInputFolder\" mode: chunk type: input }, { referenceId: \"transcriptionOutputFolder\" mode: chunk type: output } ], executionPreferences: { priority: -150} } { engineId: \"8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3\" ioFolders: [ { referenceId: \"owInputFolderFromTranscription\" mode: chunk type: input } ] executionPreferences: { parentCompleteBeforeStarting: true, priority: -150}  } ] routes: [ { parentIoFolderReferenceId: \"wsaOutputFolder\" childIoFolderReferenceId: \"playbackInputFolder\" options: {} }, { parentIoFolderReferenceId: \"wsaOutputFolder\" childIoFolderReferenceId: \"chunkAudioInputFolder\" options: {} } { parentIoFolderReferenceId: \"chunkAudioOutputFolder\" childIoFolderReferenceId: \"transcriptionInputFolder\" options: {} } { parentIoFolderReferenceId: \"transcriptionOutputFolder\" childIoFolderReferenceId: \"owInputFolderFromTranscription\" options: {} } ] }) { id }}", VALIDATE_CLUSTER_ID, startTime, stopTime),
+	adhocCoreJobResponse := fetch(BASE_API_URL, map[string]string{
+		"query": fmt.Sprintf(`
+			mutation createWSAJobV3JobDAGForNewTDO{ 
+				createJob(
+					input: { 
+						clusterId: %q 
+						organizationId: 7682 
+						target: { 
+							startDateTime:%v 
+							stopDateTime:%v 
+						} 
+						tasks: [ 
+							{ 
+								engineId: "9e611ad7-2d3b-48f6-a51b-0a1ba40fe255" 
+								payload: { 
+									url:"https://s3.amazonaws.com/src-veritone-tests/stage/20190505/0_40_Eric%%20Knox%%20BWC%%20Video_40secs.mp4" 
+								} 
+								ioFolders: [ 
+									{ 
+										referenceId: "wsaOutputFolder" 
+										mode: stream 
+										type: output 
+									}
+								] 
+								executionPreferences: { 
+									priority: -150
+								} 
+							} 
+							{ 
+								engineId: "352556c7-de07-4d55-b33f-74b1cf237f25" 
+								ioFolders: [ 
+									{ 
+										referenceId: "playbackInputFolder" 
+										mode: stream 
+										type: input 
+									} 
+								] 
+								executionPreferences: { 
+									parentCompleteBeforeStarting: true, 
+									priority: -150 
+								} 
+							} 
+							{ 
+								engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440" 
+								payload:{ 
+									ffmpegTemplate: "audio" 
+									customFFMPEGProperties:{ 
+										chunkSizeInSeconds: "20" 
+									} 
+								} 
+								ioFolders: [ 
+									{ 
+										referenceId: "chunkAudioInputFolder" 
+										mode: stream 
+										type: input 
+									}, 
+									{ 
+										referenceId: "chunkAudioOutputFolder" 
+										mode: chunk 
+										type: output 
+									} 
+								], 
+								executionPreferences: { 
+									parentCompleteBeforeStarting: true, 
+									priority: -150 
+								} 
+							} 
+							{ 
+								engineId: "c0e55cde-340b-44d7-bb42-2e0d65e98255" 
+								ioFolders: [ 
+									{ 
+										referenceId: "transcriptionInputFolder" 
+										mode: chunk 
+										type: input 
+									}, 
+									{ 
+										referenceId: "transcriptionOutputFolder" 
+										mode: chunk 
+										type: output 
+									} 
+								], 
+								executionPreferences: { 
+									priority: -150
+								} 
+							} 
+							{ 
+								engineId: "8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3" 
+								ioFolders: [ 
+									{ 
+										referenceId: "owInputFolderFromTranscription" 
+										mode: chunk 
+										type: input 
+									} 
+								] 
+								executionPreferences: { 
+									parentCompleteBeforeStarting: true, 
+									priority: -150
+								}  
+							} 
+						] 
+						routes: [
+							{
+								parentIoFolderReferenceId: "wsaOutputFolder"
+								childIoFolderReferenceId: "playbackInputFolder"
+								options: {
+								}
+							},
+							{
+								parentIoFolderReferenceId: "wsaOutputFolder"
+								childIoFolderReferenceId: "chunkAudioInputFolder"
+								options: {
+								}
+							}
+							{
+								parentIoFolderReferenceId: "chunkAudioOutputFolder"
+								childIoFolderReferenceId: "transcriptionInputFolder"
+								options: {
+								}
+							}
+							{
+								parentIoFolderReferenceId: "transcriptionOutputFolder"
+								childIoFolderReferenceId: "owInputFolderFromTranscription"
+								options: {
+								}
+							}
+						]
+					}
+				) 
+				{
+					id 
+				}
+			}`,
+			VALIDATE_CLUSTER_ID,
+			startTime,
+			stopTime,
+		),
 		"operationName": "createWSAJobV3JobDAGForNewTDO",
 	})
-	response, error := http.Post(BASE_API_URL, "application/json", bytes.NewBuffer(postBody))
-
-	if error != nil {
-		fatal(errors.New(fmt.Sprint("when posting to ", base_api_url, "err:", error)))
-	}
-
-	defer response.Body.Close()
-
-	body, error := ioutil.ReadAll(response.Body)
-	if error != nil {
-		fatal(errors.New(fmt.Sprint("reading response body. msg:", error)))
-	}
-
-	adhocCoreJobResponse := string(body)
 
 	info(fmt.Sprint("[DEBUG] Core job response:", adhocCoreJobResponse))
 
@@ -318,11 +459,16 @@ func main() {
 		base_api_url = os.Args[3]
 	}
 
+	username := flag.String("u", "", "user account with api access.")
+	password := flag.String("p", "", "password for user account.")
+
+	flag.Parse()
+
 	info(fmt.Sprint("Starting deployment validation for Environment=", env))
 	validateEnv()
 
 	// uncomment for local use
-	// setToken()
+	setToken(*username, *password)
 
 	testAdhocCoreJob()
 	//testAdhocEdgeJob()
