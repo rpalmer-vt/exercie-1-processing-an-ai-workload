@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -45,8 +46,16 @@ var env, controller_url, base_api_url string
 var QUERY_JOB_TIMEOUT time.Duration
 var VALIDATE_CLUSTER_ID string
 var BASE_API_URL string
-var ADHOC_CORE_JOB_ID string
 var TOKEN string
+var ADHOC_CORE_JOB_ID string
+var ADHOC_CORE_VALIDATED bool
+var SCHEDULED_JOB_NAME string
+var SCHEDULED_CORE_JOB_ID string
+var SCHEDULED_JOB_TEMPLATE_ID string
+
+var wg sync.WaitGroup
+var adhocCoreJobWg sync.WaitGroup
+var scheduledJobWg sync.WaitGroup
 
 //
 // --- GENERAL FUNCTIONS ---
@@ -69,7 +78,7 @@ func cleanupOnInterrupt() {
 func fetch(resource string, requestBody map[string]string) (responseBody string) {
 	client := &http.Client{}
 	postBody, _ := json.Marshal(requestBody)
-	info(fmt.Sprint("[DEBUG]", "Post Body:", string(postBody)))
+	//info(fmt.Sprint("[DEBUG]", "Post Body:", string(postBody)))
 	req, err := http.NewRequest(http.MethodPost, resource, bytes.NewBuffer(postBody))
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", TOKEN))
 	req.Header.Add("Content-Type", "application/json")
@@ -93,7 +102,7 @@ func fetch(resource string, requestBody map[string]string) (responseBody string)
 	return
 }
 
-func handleErrResponse(errResponse string) {
+func handleErrResponseCore(errResponse string, errHandler func(err error)) {
 	var apiErrorResponseJson types.APIErrorResponse
 	err := json.Unmarshal([]byte(errResponse), &apiErrorResponseJson)
 	if err == nil {
@@ -105,8 +114,15 @@ func handleErrResponse(errResponse string) {
 			}
 		}
 		//info(fmt.Sprint("[DEBUG] post body:", string(postBody)))
-		fatal(errors.New(fmt.Sprint("returned from api.", errsMsg)))
+		errHandler(errors.New(fmt.Sprint("returned from api.", errsMsg)))
+	} else {
+		info(fmt.Sprint("[DEBUG] errResponse:", errResponse))
+		panic(err)
 	}
+}
+
+func handleErrResponse(errResponse string) {
+	handleErrResponseCore(errResponse, fatal)
 }
 
 func validateEnv() {
@@ -188,7 +204,7 @@ func setToken(username string, password string) {
 	// If you have already fetched tokens you would like to use instead, set them here
 	// EDGE_VALIDATION_TOKEN=<your token here>
 	// API_VALIDATION_TOKEN=<your token here>
-	fmt.Println("noop")
+	// fmt.Println("noop")
 }
 
 //
@@ -196,146 +212,80 @@ func setToken(username string, password string) {
 //
 func createAdhocCoreJob() {
 	// Set start time to two minutes in the past and stop time to 15 minutes in the future
-	startTime := time.Now().Add(time.Minute * -2).Unix()
-	stopTime := time.Now().Add(time.Minute * 15).Unix()
+	// startTime := time.Now().Add(time.Minute * -2).Unix()
+	// stopTime := time.Now().Add(time.Minute * 15).Unix()
 	// TODO: graphql call to create adhoc job
 	adhocCoreJobResponse := fetch(BASE_API_URL, map[string]string{
-		"query": fmt.Sprintf(`
-			mutation createWSAJobV3JobDAGForNewTDO{ 
-				createJob(
-					input: { 
-						clusterId: %q 
-						organizationId: 7682 
-						target: { 
-							startDateTime:%v 
-							stopDateTime:%v 
-						} 
-						tasks: [ 
-							{ 
-								engineId: "9e611ad7-2d3b-48f6-a51b-0a1ba40fe255" 
-								payload: { 
-									url:"https://s3.amazonaws.com/src-veritone-tests/stage/20190505/0_40_Eric%%20Knox%%20BWC%%20Video_40secs.mp4" 
-								} 
-								ioFolders: [ 
-									{ 
-										referenceId: "wsaOutputFolder" 
-										mode: stream 
-										type: output 
-									}
-								] 
-								executionPreferences: { 
-									priority: -150
-								} 
-							} 
-							{ 
-								engineId: "352556c7-de07-4d55-b33f-74b1cf237f25" 
-								ioFolders: [ 
-									{ 
-										referenceId: "playbackInputFolder" 
-										mode: stream 
-										type: input 
-									} 
-								] 
-								executionPreferences: { 
-									parentCompleteBeforeStarting: true, 
-									priority: -150 
-								} 
-							} 
-							{ 
-								engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440" 
-								payload:{ 
-									ffmpegTemplate: "audio" 
-									customFFMPEGProperties:{ 
-										chunkSizeInSeconds: "20" 
-									} 
-								} 
-								ioFolders: [ 
-									{ 
-										referenceId: "chunkAudioInputFolder" 
-										mode: stream 
-										type: input 
-									}, 
-									{ 
-										referenceId: "chunkAudioOutputFolder" 
-										mode: chunk 
-										type: output 
-									} 
-								], 
-								executionPreferences: { 
-									parentCompleteBeforeStarting: true, 
-									priority: -150 
-								} 
-							} 
-							{ 
-								engineId: "c0e55cde-340b-44d7-bb42-2e0d65e98255" 
-								ioFolders: [ 
-									{ 
-										referenceId: "transcriptionInputFolder" 
-										mode: chunk 
-										type: input 
-									}, 
-									{ 
-										referenceId: "transcriptionOutputFolder" 
-										mode: chunk 
-										type: output 
-									} 
-								], 
-								executionPreferences: { 
-									priority: -150
-								} 
-							} 
-							{ 
-								engineId: "8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3" 
-								ioFolders: [ 
-									{ 
-										referenceId: "owInputFolderFromTranscription" 
-										mode: chunk 
-										type: input 
-									} 
-								] 
-								executionPreferences: { 
-									parentCompleteBeforeStarting: true, 
-									priority: -150
-								}  
-							} 
-						] 
-						routes: [
-							{
-								parentIoFolderReferenceId: "wsaOutputFolder"
-								childIoFolderReferenceId: "playbackInputFolder"
-								options: {
-								}
-							},
-							{
-								parentIoFolderReferenceId: "wsaOutputFolder"
-								childIoFolderReferenceId: "chunkAudioInputFolder"
-								options: {
-								}
+		"query": `
+		mutation create_translate_job($clusterId: ID!) {
+			createJob(
+				input: {
+					target: { status: "downloaded" }
+					clusterId: $clusterId
+					## Tasks
+					tasks: [
+						{
+							# Chunk engine
+							engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440"
+							payload: {
+								url: "https://vtn-test-files.s3.amazonaws.com/text/txt/tardis.txt"
+								ffmpegTemplate: "rawchunk"
 							}
-							{
-								parentIoFolderReferenceId: "chunkAudioOutputFolder"
-								childIoFolderReferenceId: "transcriptionInputFolder"
-								options: {
-								}
+							executionPreferences: {
+								priority: -92
+								parentCompleteBeforeStarting: true
 							}
-							{
-								parentIoFolderReferenceId: "transcriptionOutputFolder"
-								childIoFolderReferenceId: "owInputFolderFromTranscription"
-								options: {
-								}
+							ioFolders: [{ referenceId: "si-out", mode: chunk, type: output }]
+						}
+						{
+							# Amazon translate
+							engineId: "1fc4d3d4-54ab-42d1-882c-cfc9df42f386"
+							payload: { target: "de" }
+							executionPreferences: {
+								priority: -92
+								parentCompleteBeforeStarting: true
 							}
-						]
-					}
-				) 
-				{
-					id 
+							ioFolders: [
+								{ referenceId: "engine-in", mode: chunk, type: input }
+								{ referenceId: "engine-out", mode: chunk, type: output }
+							]
+						}
+						{
+							# output writer
+							engineId: "8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3"
+							executionPreferences: {
+								priority: -92
+								parentCompleteBeforeStarting: true
+							}
+							ioFolders: [{ referenceId: "ow-in", mode: chunk, type: input }]
+						}
+					]
+					##Routes
+					routes: [
+						{
+							## chunkAudio --> translation
+							parentIoFolderReferenceId: "si-out"
+							childIoFolderReferenceId: "engine-in"
+							options: {}
+						}
+						{
+							## sampleChunkOutputFolderA  --> ow1
+							parentIoFolderReferenceId: "engine-out"
+							childIoFolderReferenceId: "ow-in"
+							options: {}
+						}
+					]
 				}
-			}`,
-			VALIDATE_CLUSTER_ID,
-			startTime,
-			stopTime,
-		),
-		"operationName": "createWSAJobV3JobDAGForNewTDO",
+			) {
+				id
+				targetId
+				createdDateTime
+			}
+		},
+		`,
+		"variables": fmt.Sprintf(`{
+			"clusterId": "%s"
+		}`, VALIDATE_CLUSTER_ID),
 	})
 
 	info(fmt.Sprint("[DEBUG] Core job response:", adhocCoreJobResponse))
@@ -361,18 +311,69 @@ func queryAdhocCoreJob() {
 		for {
 			select {
 			case <-ticker.C:
-				// TODO: graphql request to query adhoc core job.
-				if time.Now().After(coreTimeout) {
-					close(quit)
-					fatal(
-						errors.New(
-							fmt.Sprint("Core Jobs still pending after", coreTimeout, ", failing environment validation for Environment=", env),
-						),
-					)
+				{
+					queryAdhocCoreJobResponse := fetch(BASE_API_URL, map[string]string{
+						"query": fmt.Sprintf(`
+						{
+							job(id: "%s") {
+								id
+								targetId
+								clusterId
+								status
+								createdDateTime
+									tasks {
+										records {
+											id
+											engine {
+												name
+											}
+											status
+										}
+									}
+							}
+						}`, ADHOC_CORE_JOB_ID),
+					})
+
+					info(fmt.Sprint("[DEBUG] Query Core job response:", queryAdhocCoreJobResponse))
+
+					var queryAdhocCoreJobResponseJson types.QueryAdhocCoreJobResponse
+					err := json.Unmarshal([]byte(queryAdhocCoreJobResponse), &queryAdhocCoreJobResponseJson)
+					if err == nil && queryAdhocCoreJobResponseJson.Data.Job.Status != "" {
+						adhocCoreJobStatus := queryAdhocCoreJobResponseJson.Data.Job.Status
+						info(fmt.Sprint("Core job status:", adhocCoreJobStatus))
+
+						if adhocCoreJobStatus == "complete" {
+							ADHOC_CORE_VALIDATED = true
+						}
+
+						if adhocCoreJobStatus == "failed" || adhocCoreJobStatus == "aborted" {
+							fatal(fmt.Errorf("AdHoc core job failed ID=%s Status=%s", ADHOC_CORE_JOB_ID, adhocCoreJobStatus))
+						}
+
+						if ADHOC_CORE_VALIDATED {
+							info(fmt.Sprintf("AdHoc core job succeeded ID=%s Status=%s", ADHOC_CORE_JOB_ID, adhocCoreJobStatus))
+							close(quit)
+						}
+					} else {
+						handleErrResponse(queryAdhocCoreJobResponse)
+					}
+
+					if time.Now().After(coreTimeout) {
+						fatal(
+							errors.New(
+								fmt.Sprint("Core Jobs still pending after", coreTimeout, ", failing environment validation for Environment=", env),
+							),
+						)
+						close(quit)
+					}
 				}
+
 			case <-quit:
-				ticker.Stop()
-				return
+				{
+					ticker.Stop()
+					adhocCoreJobWg.Done()
+					return
+				}
 			}
 		}
 	}()
@@ -397,27 +398,186 @@ func validateEdgeJobOutput() {
 // --- SCHEDULED CORE/EDGE JOB FUNCTIONS ---
 //
 func createScheduledCoreJob() {
+	// Set start time to two minutes in the past and stop time to 15 minutes in the future
+	startTime := time.Now().Add(time.Minute * -2).Unix()
+	stopTime := time.Now().Add(time.Hour).Unix()
+	SCHEDULED_JOB_NAME = fmt.Sprintf("scheduled_job_test_%s", fmt.Sprint(time.Now().Unix()))
+	// TODO: graphql call to create adhoc job
+	scheduledCoreJobResponse := fetch(BASE_API_URL, map[string]string{
+		"query": fmt.Sprintf(`
+		mutation createScheduledJob { createScheduledJob(input: {organizationId: 7682, name: "%s", runMode: Recurring, startDateTime: %v, stopDateTime: %v, recurringScheduleParts: [{repeatInterval: 5, repeatIntervalUnit: Minutes}], jobTemplateIds: ["%s"]}) { id }}
+		`, SCHEDULED_JOB_NAME, startTime, stopTime, SCHEDULED_JOB_TEMPLATE_ID),
+		"variables": fmt.Sprintf(`{
+			"clusterId": "%s"
+		}`, VALIDATE_CLUSTER_ID),
+	})
 
+	info(fmt.Sprint("[DEBUG] Scheduled Core job response:", scheduledCoreJobResponse))
+
+	var scheduledCoreJobResponseJson types.APIScheduledCoreJobResponse
+	err := json.Unmarshal([]byte(scheduledCoreJobResponse), &scheduledCoreJobResponseJson)
+	if err == nil && scheduledCoreJobResponseJson.Data.CreateScheduledJob.Id != "" {
+		SCHEDULED_CORE_JOB_ID = scheduledCoreJobResponseJson.Data.CreateScheduledJob.Id
+		info(fmt.Sprint("Scheduled core job id:", ADHOC_CORE_JOB_ID))
+	} else {
+		handleErrResponse(scheduledCoreJobResponse)
+	}
 }
 
 func queryEdgeScheduledJob() {
+	// This does not use QUERY_JOB_TIMEOUT because jobs are pulled every 5 minutes
+	scheduleTimeout := time.Now().Add(time.Minute * 15)
+	pollInterval := time.Minute
 
+	ticker := time.NewTicker(pollInterval)
+	quit := make(chan struct{})
+	go func() {
+		var retrievedScheduledJobId string
+		for {
+			select {
+			case <-ticker.C:
+				{
+					queryEdgeScheduledJobResponse, err := http.Get(fmt.Sprintf("%s/edge/v1/proc/scheduled_jobs", controller_url))
+
+					if err == nil {
+
+						defer queryEdgeScheduledJobResponse.Body.Close()
+
+						body, error := ioutil.ReadAll(queryEdgeScheduledJobResponse.Body)
+						if error != nil {
+							fatal(errors.New(fmt.Sprint("reading response body. msg:", error)))
+						}
+
+						bodyStr := string(body)
+
+						info(fmt.Sprint("[DEBUG] Query Edge Scheduled job response:", bodyStr))
+
+						var queryEdgeScheduledJobResponseJson types.QueryEdgeScheduledJobResponse
+						err := json.Unmarshal([]byte(bodyStr), &queryEdgeScheduledJobResponseJson)
+						if err == nil && len(queryEdgeScheduledJobResponseJson.Result) > 0 {
+
+							for _, retrievedScheduledJob := range queryEdgeScheduledJobResponseJson.Result {
+								if retrievedScheduledJob.ScheduledJobName == SCHEDULED_JOB_NAME {
+									retrievedScheduledJobId = retrievedScheduledJob.ScheduledJobId
+									break
+								}
+							}
+							info(fmt.Sprint("Scheduled job query retrieved id:", retrievedScheduledJobId))
+
+							if retrievedScheduledJobId == SCHEDULED_CORE_JOB_ID {
+								info(fmt.Sprintf("Found shceduled job ID (%s) in edge", retrievedScheduledJobId))
+							} else {
+								info("Scheduled job not found in edge yet...")
+								close(quit)
+							}
+
+						} else {
+							handleErrResponse(bodyStr)
+						}
+					} else {
+						fatal(fmt.Errorf("Timeout! Failed to find the scheduled job in edge. Looked for ID=%s", SCHEDULED_CORE_JOB_ID))
+					}
+
+					if time.Now().After(scheduleTimeout) {
+						fatal(fmt.Errorf("Failed to find the scheduled job in edge. Looked for ID=%s but found %s", SCHEDULED_CORE_JOB_ID, retrievedScheduledJobId))
+						close(quit)
+					}
+				}
+
+			case <-quit:
+				{
+					ticker.Stop()
+					scheduledJobWg.Done()
+					return
+				}
+			}
+		}
+	}()
 }
 
 func queryCoreScheduledJobInstance() {
+	scheduleTimeout := time.Now().Add(QUERY_JOB_TIMEOUT)
+	pollInterval := time.Minute
 
+	ticker := time.NewTicker(pollInterval)
+	quit := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				{
+					queryCoreScheduledJobResponse := fetch(BASE_API_URL, map[string]string{
+						"query": fmt.Sprintf(`query { scheduledJob(id: %s) { jobs { count records { id status } }}}`, SCHEDULED_CORE_JOB_ID),
+					})
+
+					info(fmt.Sprint("[DEBUG] Query Core Scheduled job response:", queryCoreScheduledJobResponse))
+
+					var queryCoreScheduledJobResponseJson types.QueryCoreScheduledJobResponse
+					err := json.Unmarshal([]byte(queryCoreScheduledJobResponse), &queryCoreScheduledJobResponseJson)
+					if err == nil && queryCoreScheduledJobResponseJson.Data.ScheduledJob.Jobs.Count > 0 {
+						info("Scheduled job creation validated...")
+						close(quit)
+					} else {
+						handleErrResponse(queryCoreScheduledJobResponse)
+					}
+
+					if time.Now().After(scheduleTimeout) {
+						fatal(fmt.Errorf("no instances of the scheduled job %s were created", SCHEDULED_CORE_JOB_ID))
+						close(quit)
+					}
+				}
+
+			case <-quit:
+				{
+					ticker.Stop()
+					scheduledJobWg.Done()
+					return
+				}
+			}
+		}
+	}()
 }
 
 // This function is called from fatal to clean up jobs before exiting so don't call fatal from here as well
 func deleteScheduledCoreJob() {
+	deleteScheduledCoreJobResponse := fetch(BASE_API_URL, map[string]string{
+		"query": fmt.Sprintf(`mutation { deleteScheduledJob(id: "%s") { id message }}`, SCHEDULED_CORE_JOB_ID),
+	})
 
+	info(fmt.Sprint("[DEBUG] Delete Scheduled Core job response:", deleteScheduledCoreJobResponse))
+
+	var deleteScheduledCoreJobResponseJson types.APIDeleteScheduledCoreJobResponse
+	err := json.Unmarshal([]byte(deleteScheduledCoreJobResponse), &deleteScheduledCoreJobResponseJson)
+	if err == nil && deleteScheduledCoreJobResponseJson.Data.DeleteScheduledJob.Id != "" {
+		deleteScheduledJobId := deleteScheduledCoreJobResponseJson.Data.DeleteScheduledJob.Id
+		if deleteScheduledJobId == SCHEDULED_CORE_JOB_ID {
+			info(fmt.Sprint("Deleted scheduled core job id:", deleteScheduledJobId))
+		} else {
+			panic(fmt.Errorf("failed to delete scheduled core job: %s", SCHEDULED_CORE_JOB_ID))
+		}
+	} else {
+		handleErrResponseCore(deleteScheduledCoreJobResponse, func(err error) { panic(err) })
+	}
 }
 
 //
 // -- JOB TEMPLATES --
 //
 func createScheduledJobTemplate() {
+	scheduledJobTemplateResponse := fetch(BASE_API_URL, map[string]string{
+		"query": fmt.Sprintf(`mutation createMyTemplate {createJobTemplate(input: {clusterId: "%s", applicationId: "ed075985-bc94-406b-8639-44d1da42c3fb", jobConfig: {createTDOInput: {details: {tags: "aiwareV3-70927-interval"}}  maxTDODuraion: 5, sourceData: {sourceId: 70927} },  taskTemplates: [{engineId: "8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3", executionPreferences: {priority: -150,}, ioFolders: [{referenceId: "OW_INPUT", mode: chunk, type: input}]}, {engineId: "c0e55cde-340b-44d7-bb42-2e0d65e98255", executionPreferences: { priority: -150, }, ioFolders: [{referenceId: "ENGINE_INPUT", mode: chunk, type: input},{referenceId: "ENGINE_OUTPUT", mode: chunk, type: output }]},{ engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440", payload: { ffmpegTemplate: "audio", customFFMPEGProperties: { chunkSizeInSeconds: "900" }}, executionPreferences: { priority: -150, parentCompleteBeforeStarting: true }, ioFolders: [{referenceId: "CHUNK_INPUT", mode: stream, type: input },{referenceId: "CHUNK_OUTPUT", mode: chunk, type: output }]},{ engineId: "352556c7-de07-4d55-b33f-74b1cf237f25", executionPreferences: { priority: -150, parentCompleteBeforeStarting: true }, ioFolders: [{ referenceId: "PB_INPUT", mode: stream, type: input }]},{engineId: "74dfd76b-472a-48f0-8395-c7e01dd7f255", payload: {mode: ingest, sourceId: "70927" }, executionPreferences: { priority: -150 }, ioFolders: [ { referenceId: "ADAPTER_OUTPUT", mode: stream, type: output }]}], routes: [{ parentIoFolderReferenceId: "ADAPTER_OUTPUT", childIoFolderReferenceId: "PB_INPUT",},{parentIoFolderReferenceId: "ADAPTER_OUTPUT", childIoFolderReferenceId: "CHUNK_INPUT",},{ parentIoFolderReferenceId: "CHUNK_OUTPUT", childIoFolderReferenceId: "ENGINE_INPUT", },{ parentIoFolderReferenceId: "ENGINE_OUTPUT", childIoFolderReferenceId: "OW_INPUT",}]}) {id}}`, VALIDATE_CLUSTER_ID),
+	})
 
+	info(fmt.Sprint("[DEBUG] Create Job Template response:", scheduledJobTemplateResponse))
+
+	var scheduledJobTemplateResponseJson types.APIScheduledJobTemplateResponse
+	err := json.Unmarshal([]byte(scheduledJobTemplateResponse), &scheduledJobTemplateResponseJson)
+	if err == nil && scheduledJobTemplateResponseJson.Data.CreateJobTemplate.Id != "" {
+		SCHEDULED_JOB_TEMPLATE_ID = scheduledJobTemplateResponseJson.Data.CreateJobTemplate.Id
+		info(fmt.Sprint("Created scheduled job template:", SCHEDULED_JOB_TEMPLATE_ID))
+	} else {
+		handleErrResponse(scheduledJobTemplateResponse)
+	}
 }
 
 //
@@ -440,16 +600,18 @@ func testScheduledJobs() {
 	// Create a scheduled job using core
 	createScheduledCoreJob()
 
+	scheduledJobWg.Add(2)
 	// Validate that the job has arrived in edge
 	queryEdgeScheduledJob()
 
 	// Query core to validate that edge has created job instances and poll until one is marked as completed
 	queryCoreScheduledJobInstance()
-
+	scheduledJobWg.Wait()
 	// delete the scheduled job
 	deleteScheduledCoreJob()
 
 	info("scheduled job validated successfully")
+	wg.Done()
 }
 
 func testAdhocCoreJob() {
@@ -459,9 +621,12 @@ func testAdhocCoreJob() {
 	createAdhocCoreJob()
 
 	// Validate job has completed
+	adhocCoreJobWg.Add(1)
 	queryAdhocCoreJob()
+	adhocCoreJobWg.Wait()
 
 	info("adhoc core job creation validated successfully")
+	wg.Done()
 }
 
 func testAdhocEdgeJob() {
@@ -519,10 +684,15 @@ func main() {
 	// uncomment for local use
 	setToken(*username, *password)
 
-	testAdhocCoreJob()
+	wg.Add(2)
+	go func() {
+		testAdhocCoreJob()
+	}()
 	//testAdhocEdgeJob()
-	//testScheduledJobs()
-
+	go func() {
+		testScheduledJobs()
+	}()
+	wg.Wait()
 	info("deployment validated successfully, exiting")
 	os.Exit(0)
 }
