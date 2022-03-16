@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -73,6 +74,7 @@ func info(msg string) {
 
 func cleanupOnInterrupt() {
 	deleteScheduledCoreJob()
+	os.Exit(int(syscall.SIGINT))
 }
 
 func fetch(resource string, requestBody map[string]string) (responseBody string) {
@@ -228,7 +230,7 @@ func createAdhocCoreJob() {
 							# Chunk engine
 							engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440"
 							payload: {
-								url: "https://vtn-test-files.s3.amazonaws.com/text/txt/tardis.txt"
+								url: "https://aaudi-test-media.s3.us-east-2.amazonaws.com/Transcribe_Test_02.m4a"
 								ffmpegTemplate: "rawchunk"
 							}
 							executionPreferences: {
@@ -238,9 +240,14 @@ func createAdhocCoreJob() {
 							ioFolders: [{ referenceId: "si-out", mode: chunk, type: output }]
 						}
 						{
-							# Amazon translate
-							engineId: "1fc4d3d4-54ab-42d1-882c-cfc9df42f386"
-							payload: { target: "de" }
+							# Transcription - E - English V3
+							engineId: "a8c4a9f4-d6c4-4524-ab98-c0de560abf9b"
+							payload: { 
+					  keywords: "",
+					  diarization: "",
+					  advancedPunctuation: "true",
+					  speakerChangeSensitivity: "0.4"
+				  }
 							executionPreferences: {
 								priority: -92
 								parentCompleteBeforeStarting: true
@@ -281,14 +288,14 @@ func createAdhocCoreJob() {
 				targetId
 				createdDateTime
 			}
-		},
+		}		
 		`,
 		"variables": fmt.Sprintf(`{
 			"clusterId": "%s"
 		}`, VALIDATE_CLUSTER_ID),
 	})
 
-	info(fmt.Sprint("[DEBUG] Core job response:", adhocCoreJobResponse))
+	// info(fmt.Sprint("[DEBUG] Core job response:", adhocCoreJobResponse))
 
 	var adhocCoreJobResponseJson types.APIAdhocCoreJobResponse
 	err := json.Unmarshal([]byte(adhocCoreJobResponse), &adhocCoreJobResponseJson)
@@ -334,7 +341,7 @@ func queryAdhocCoreJob() {
 						}`, ADHOC_CORE_JOB_ID),
 					})
 
-					info(fmt.Sprint("[DEBUG] Query Core job response:", queryAdhocCoreJobResponse))
+					// info(fmt.Sprint("[DEBUG] Query Core job response:", queryAdhocCoreJobResponse))
 
 					var queryAdhocCoreJobResponseJson types.QueryAdhocCoreJobResponse
 					err := json.Unmarshal([]byte(queryAdhocCoreJobResponse), &queryAdhocCoreJobResponseJson)
@@ -382,17 +389,17 @@ func queryAdhocCoreJob() {
 //
 // --- ADHOC EDGE JOB FUNCTIONS ---
 //
-func createAdhocEdgeJob() {
+// func createAdhocEdgeJob() {
 
-}
+// }
 
-func queryAdhocEdgeJob() {
+// func queryAdhocEdgeJob() {
 
-}
+// }
 
-func validateEdgeJobOutput() {
+// func validateEdgeJobOutput() {
 
-}
+// }
 
 //
 // --- SCHEDULED CORE/EDGE JOB FUNCTIONS ---
@@ -404,15 +411,38 @@ func createScheduledCoreJob() {
 	SCHEDULED_JOB_NAME = fmt.Sprintf("scheduled_job_test_%s", fmt.Sprint(time.Now().Unix()))
 	// TODO: graphql call to create adhoc job
 	scheduledCoreJobResponse := fetch(BASE_API_URL, map[string]string{
-		"query": fmt.Sprintf(`
-		mutation createScheduledJob { createScheduledJob(input: {organizationId: 7682, name: "%s", runMode: Recurring, startDateTime: %v, stopDateTime: %v, recurringScheduleParts: [{repeatInterval: 5, repeatIntervalUnit: Minutes}], jobTemplateIds: ["%s"]}) { id }}
-		`, SCHEDULED_JOB_NAME, startTime, stopTime, SCHEDULED_JOB_TEMPLATE_ID),
+		"query": `
+		mutation createScheduledJob(
+			$name: String!,
+			$startDateTime: DateTime,
+			$stopDateTime: DateTime,
+			$jobTemplateId: ID!
+			) {
+				createScheduledJob(
+					input: {
+						organizationId: 7682
+						name: $name
+						runMode: Recurring,
+						startDateTime: $startDateTime
+						stopDateTime: $stopDateTime
+						recurringScheduleParts: [{repeatInterval: 5, repeatIntervalUnit: Minutes}]
+						jobTemplateIds: [$jobTemplateId]
+					}
+				)
+				{
+					id
+				}
+			}
+		`,
 		"variables": fmt.Sprintf(`{
-			"clusterId": "%s"
-		}`, VALIDATE_CLUSTER_ID),
+			"name": "%s",
+			"startDateTime": "%s",
+			"stopDateTime": "%s",
+			"jobTemplateId": "%s"
+		}`, SCHEDULED_JOB_NAME, strconv.FormatInt(startTime, 10), strconv.FormatInt(stopTime, 10), SCHEDULED_JOB_TEMPLATE_ID),
 	})
 
-	info(fmt.Sprint("[DEBUG] Scheduled Core job response:", scheduledCoreJobResponse))
+	// info(fmt.Sprint("[DEBUG] Scheduled Core job response:", scheduledCoreJobResponse))
 
 	var scheduledCoreJobResponseJson types.APIScheduledCoreJobResponse
 	err := json.Unmarshal([]byte(scheduledCoreJobResponse), &scheduledCoreJobResponseJson)
@@ -450,7 +480,7 @@ func queryEdgeScheduledJob() {
 
 						bodyStr := string(body)
 
-						info(fmt.Sprint("[DEBUG] Query Edge Scheduled job response:", bodyStr))
+						// info(fmt.Sprint("[DEBUG] Query Edge Scheduled job response:", bodyStr))
 
 						var queryEdgeScheduledJobResponseJson types.QueryEdgeScheduledJobResponse
 						err := json.Unmarshal([]byte(bodyStr), &queryEdgeScheduledJobResponseJson)
@@ -475,11 +505,11 @@ func queryEdgeScheduledJob() {
 							handleErrResponse(bodyStr)
 						}
 					} else {
-						fatal(fmt.Errorf("Timeout! Failed to find the scheduled job in edge. Looked for ID=%s", SCHEDULED_CORE_JOB_ID))
+						fatal(fmt.Errorf("timeout! Failed to find the scheduled job in edge. Looked for ID=%s", SCHEDULED_CORE_JOB_ID))
 					}
 
 					if time.Now().After(scheduleTimeout) {
-						fatal(fmt.Errorf("Failed to find the scheduled job in edge. Looked for ID=%s but found %s", SCHEDULED_CORE_JOB_ID, retrievedScheduledJobId))
+						fatal(fmt.Errorf("failed to find the scheduled job in edge. Looked for ID=%s but found %s", SCHEDULED_CORE_JOB_ID, retrievedScheduledJobId))
 						close(quit)
 					}
 				}
@@ -510,7 +540,7 @@ func queryCoreScheduledJobInstance() {
 						"query": fmt.Sprintf(`query { scheduledJob(id: %s) { jobs { count records { id status } }}}`, SCHEDULED_CORE_JOB_ID),
 					})
 
-					info(fmt.Sprint("[DEBUG] Query Core Scheduled job response:", queryCoreScheduledJobResponse))
+					// info(fmt.Sprint("[DEBUG] Query Core Scheduled job response:", queryCoreScheduledJobResponse))
 
 					var queryCoreScheduledJobResponseJson types.QueryCoreScheduledJobResponse
 					err := json.Unmarshal([]byte(queryCoreScheduledJobResponse), &queryCoreScheduledJobResponseJson)
@@ -541,10 +571,11 @@ func queryCoreScheduledJobInstance() {
 // This function is called from fatal to clean up jobs before exiting so don't call fatal from here as well
 func deleteScheduledCoreJob() {
 	deleteScheduledCoreJobResponse := fetch(BASE_API_URL, map[string]string{
-		"query": fmt.Sprintf(`mutation { deleteScheduledJob(id: "%s") { id message }}`, SCHEDULED_CORE_JOB_ID),
+		"query": `mutation deleteScheduledJob($scheduledJobId: ID!){ 
+			deleteScheduledJob(id: "%s") { id message }}`,
 	})
 
-	info(fmt.Sprint("[DEBUG] Delete Scheduled Core job response:", deleteScheduledCoreJobResponse))
+	// info(fmt.Sprint("[DEBUG] Delete Scheduled Core job response:", deleteScheduledCoreJobResponse))
 
 	var deleteScheduledCoreJobResponseJson types.APIDeleteScheduledCoreJobResponse
 	err := json.Unmarshal([]byte(deleteScheduledCoreJobResponse), &deleteScheduledCoreJobResponseJson)
@@ -565,10 +596,80 @@ func deleteScheduledCoreJob() {
 //
 func createScheduledJobTemplate() {
 	scheduledJobTemplateResponse := fetch(BASE_API_URL, map[string]string{
-		"query": fmt.Sprintf(`mutation createMyTemplate {createJobTemplate(input: {clusterId: "%s", applicationId: "ed075985-bc94-406b-8639-44d1da42c3fb", jobConfig: {createTDOInput: {details: {tags: "aiwareV3-70927-interval"}}  maxTDODuraion: 5, sourceData: {sourceId: 70927} },  taskTemplates: [{engineId: "8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3", executionPreferences: {priority: -150,}, ioFolders: [{referenceId: "OW_INPUT", mode: chunk, type: input}]}, {engineId: "c0e55cde-340b-44d7-bb42-2e0d65e98255", executionPreferences: { priority: -150, }, ioFolders: [{referenceId: "ENGINE_INPUT", mode: chunk, type: input},{referenceId: "ENGINE_OUTPUT", mode: chunk, type: output }]},{ engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440", payload: { ffmpegTemplate: "audio", customFFMPEGProperties: { chunkSizeInSeconds: "900" }}, executionPreferences: { priority: -150, parentCompleteBeforeStarting: true }, ioFolders: [{referenceId: "CHUNK_INPUT", mode: stream, type: input },{referenceId: "CHUNK_OUTPUT", mode: chunk, type: output }]},{ engineId: "352556c7-de07-4d55-b33f-74b1cf237f25", executionPreferences: { priority: -150, parentCompleteBeforeStarting: true }, ioFolders: [{ referenceId: "PB_INPUT", mode: stream, type: input }]},{engineId: "74dfd76b-472a-48f0-8395-c7e01dd7f255", payload: {mode: ingest, sourceId: "70927" }, executionPreferences: { priority: -150 }, ioFolders: [ { referenceId: "ADAPTER_OUTPUT", mode: stream, type: output }]}], routes: [{ parentIoFolderReferenceId: "ADAPTER_OUTPUT", childIoFolderReferenceId: "PB_INPUT",},{parentIoFolderReferenceId: "ADAPTER_OUTPUT", childIoFolderReferenceId: "CHUNK_INPUT",},{ parentIoFolderReferenceId: "CHUNK_OUTPUT", childIoFolderReferenceId: "ENGINE_INPUT", },{ parentIoFolderReferenceId: "ENGINE_OUTPUT", childIoFolderReferenceId: "OW_INPUT",}]}) {id}}`, VALIDATE_CLUSTER_ID),
+		"query": `
+		mutation createJobTemplate($clusterId: ID!) {
+			createJobTemplate(
+				input: {
+					clusterId: $clusterId
+					applicationId: "ed075985-bc94-406b-8639-44d1da42c3fb"
+					jobConfig: {
+						createTDOInput: { details: { tags: "aiwareV3-70927-interval" } }
+						maxTDODuraion: 5
+						sourceData: { sourceId: 70927 }
+					}
+					taskTemplates: [
+					{
+						# Chunk engine
+						engineId: "8bdb0e3b-ff28-4f6e-a3ba-887bd06e6440"
+						payload: {
+							url: "https://vtn-test-files.s3.amazonaws.com/text/txt/tardis.txt"
+							ffmpegTemplate: "rawchunk"
+						}
+						executionPreferences: {
+							priority: -92
+							parentCompleteBeforeStarting: true
+						}
+						ioFolders: [{ referenceId: "si-out", mode: chunk, type: output }]
+					}
+					{
+						# Amazon translate
+						engineId: "1fc4d3d4-54ab-42d1-882c-cfc9df42f386"
+						payload: { target: "de" }
+						executionPreferences: {
+							priority: -92
+							parentCompleteBeforeStarting: true
+						}
+						ioFolders: [
+						{ referenceId: "engine-in", mode: chunk, type: input }
+						{ referenceId: "engine-out", mode: chunk, type: output }
+						]
+					}
+					{
+						# output writer
+						engineId: "8eccf9cc-6b6d-4d7d-8cb3-7ebf4950c5f3"
+						executionPreferences: {
+							priority: -92
+							parentCompleteBeforeStarting: true
+						}
+						ioFolders: [{ referenceId: "ow-in", mode: chunk, type: input }]
+					}
+					]
+					##Routes
+					routes: [
+					{
+						## chunkAudio --> translation
+						parentIoFolderReferenceId: "si-out"
+						childIoFolderReferenceId: "engine-in"
+						options: {}
+					}
+					{
+						## sampleChunkOutputFolderA  --> ow1
+						parentIoFolderReferenceId: "engine-out"
+						childIoFolderReferenceId: "ow-in"
+						options: {}
+					}
+					]
+				}
+			) {
+				id
+			}
+		}`,
+		"variables": fmt.Sprintf(`{
+			"clusterId": "%s"
+		}`, VALIDATE_CLUSTER_ID),
 	})
 
-	info(fmt.Sprint("[DEBUG] Create Job Template response:", scheduledJobTemplateResponse))
+	// info(fmt.Sprint("[DEBUG] Create Job Template response:", scheduledJobTemplateResponse))
 
 	var scheduledJobTemplateResponseJson types.APIScheduledJobTemplateResponse
 	err := json.Unmarshal([]byte(scheduledJobTemplateResponse), &scheduledJobTemplateResponseJson)
@@ -633,13 +734,13 @@ func testAdhocEdgeJob() {
 	info("testing adhoc edge job creation...")
 
 	// Create an adhoc job through core
-	createAdhocEdgeJob()
+	// createAdhocEdgeJob()
 
-	// Validate job has completed
-	queryAdhocEdgeJob()
+	// // Validate job has completed
+	// queryAdhocEdgeJob()
 
-	// Validate the job had an output chunk
-	validateEdgeJobOutput()
+	// // Validate the job had an output chunk
+	// validateEdgeJobOutput()
 
 	info("adhoc edge job creation validated successfully")
 }
@@ -684,14 +785,14 @@ func main() {
 	// uncomment for local use
 	setToken(*username, *password)
 
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		testAdhocCoreJob()
 	}()
 	//testAdhocEdgeJob()
-	go func() {
-		testScheduledJobs()
-	}()
+	// go func() {
+	// 	testScheduledJobs()
+	// }()
 	wg.Wait()
 	info("deployment validated successfully, exiting")
 	os.Exit(0)
