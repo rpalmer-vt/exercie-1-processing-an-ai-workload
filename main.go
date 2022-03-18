@@ -54,6 +54,15 @@ var SCHEDULED_JOB_NAME string
 var SCHEDULED_CORE_JOB_ID string
 var SCHEDULED_JOB_TEMPLATE_ID string
 
+var ADHOC_CORE_TARGET_ID string
+
+var DATA_REGISTRY_ID string
+var SCHEMA_DRAFT_ID string
+var PUBLISHED_SCHEMA_ID string
+var ROOT_FOLDER_ID string
+var ROOT_FOLDER_TYPE_ID int
+var TDO_FOLDER_ID string
+
 var wg sync.WaitGroup
 var adhocCoreJobWg sync.WaitGroup
 var scheduledJobWg sync.WaitGroup
@@ -64,7 +73,7 @@ var scheduledJobWg sync.WaitGroup
 
 func fatal(err error) {
 	fmt.Println(time.Now().Format(time.StampMicro), "[ERROR]", err.Error())
-	deleteScheduledCoreJob()
+	//deleteScheduledCoreJob()
 	os.Exit(1)
 }
 
@@ -73,7 +82,7 @@ func info(msg string) {
 }
 
 func cleanupOnInterrupt() {
-	deleteScheduledCoreJob()
+	// deleteScheduledCoreJob()
 	os.Exit(int(syscall.SIGINT))
 }
 
@@ -301,6 +310,7 @@ func createAdhocCoreJob() {
 	err := json.Unmarshal([]byte(adhocCoreJobResponse), &adhocCoreJobResponseJson)
 	if err == nil && adhocCoreJobResponseJson.Data.CreateJob.Id != "" {
 		ADHOC_CORE_JOB_ID = adhocCoreJobResponseJson.Data.CreateJob.Id
+		ADHOC_CORE_TARGET_ID = adhocCoreJobResponseJson.Data.CreateJob.TargetId
 		info(fmt.Sprint("AdHoc core job id:", ADHOC_CORE_JOB_ID))
 	} else {
 		handleErrResponse(adhocCoreJobResponse)
@@ -746,6 +756,418 @@ func testAdhocEdgeJob() {
 }
 
 //
+// --- Exercise 2 ---
+//
+
+func createDataRegistry() {
+	createDataRegistryResponse := fetch(BASE_API_URL, map[string]string{
+		"query": `
+		mutation createDataRegistry {
+			createDataRegistry(input: {
+				name: "Vehicle"
+				description: "RMS metadata pertaining to a Vehicle record type."
+				source: "field deprecated"
+			}) 
+			{
+				id
+			}
+		}
+		`,
+	})
+
+	info(fmt.Sprint("[DEBUG]", "createDataRegistryResponse:", createDataRegistryResponse))
+
+	var createDataRegistryResponseJson types.APICreateDataRegistryResponse
+	err := json.Unmarshal([]byte(createDataRegistryResponse), &createDataRegistryResponseJson)
+	if err == nil && createDataRegistryResponseJson.Data.CreateDataRegistry.Id != "" {
+		DATA_REGISTRY_ID = createDataRegistryResponseJson.Data.CreateDataRegistry.Id
+		info(fmt.Sprint("Created data registry id:", DATA_REGISTRY_ID))
+	} else {
+		handleErrResponse(createDataRegistryResponse)
+	}
+}
+
+func createSchemaDraft() {
+	/* Example jsonData output from a transcription service (to base the schema def on)
+		{
+	            "sourceEngineId": "a8c4a9f4-d6c4-4524-ab98-c0de560abf9b",
+	            "taskId": "22031117_3SSTa2DhV4RX43A",
+	            "internalTaskId": "67053cbc-a944-49b1-8327-319d3b9f7e2d",
+	            "generatedDateUTC": "2022-03-17T19:35:03.302770354Z",
+	            "series": [
+	              {
+	                "startTimeMs": 900,
+	                "stopTimeMs": 1500,
+	                "words": [
+	                  {
+	                    "word": "She",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              },
+	              {
+	                "startTimeMs": 1680,
+	                "stopTimeMs": 2400,
+	                "words": [
+	                  {
+	                    "word": "sells",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              },
+	              {
+	                "startTimeMs": 2970,
+	                "stopTimeMs": 4110,
+	                "words": [
+	                  {
+	                    "word": "seashells",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              },
+	              {
+	                "startTimeMs": 4440,
+	                "stopTimeMs": 4950,
+	                "words": [
+	                  {
+	                    "word": "by",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              },
+	              {
+	                "startTimeMs": 4980,
+	                "stopTimeMs": 5190,
+	                "words": [
+	                  {
+	                    "word": "the",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              },
+	              {
+	                "startTimeMs": 5190,
+	                "stopTimeMs": 5910,
+	                "words": [
+	                  {
+	                    "word": "seashore",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              },
+	              {
+	                "startTimeMs": 5910,
+	                "stopTimeMs": 5910,
+	                "words": [
+	                  {
+	                    "word": ".",
+	                    "confidence": 1,
+	                    "bestPath": true,
+	                    "utteranceLength": 1
+	                  }
+	                ],
+	                "language": "en"
+	              }
+	            ],
+	            "modifiedDateTime": 1647545775000
+	          }
+	*/
+
+	createSchemaDraftResponse := fetch(BASE_API_URL, map[string]string{
+		"query": `
+			# Note: Use the 'dataRegistryId' value from the 'createDataRegistry' mutation.
+			mutation createSchemaDraft($dataRegistryId: ID!) {
+			upsertSchemaDraft(input: {
+				dataRegistryId: $dataRegistryId
+				majorVersion: 1
+				schema: {
+				type: "object",
+				title: "Vehicle",
+				required: [
+					"caseId",
+					"vehicleId"
+				],
+				properties: {
+					caseId: {
+					type: "string"
+					},
+					vehicleId: {
+					type: "string"
+					},
+					licensePlateNumber: {
+					type: "string"
+					},
+					stateOfIssue: {
+					type: "string"
+					},
+					vehicleYear: {
+					type: "string"
+					},
+					vehicleMake: {
+					type: "string"
+					},
+					vehicleModel: {
+					type: "string"
+					},
+					vehicleStyle: {
+					type: "string"
+					},
+					vehicleColor: {
+					type: "string"
+					}
+				},
+				description: "RMS metadata pertaining to a Vehicle record type."      
+				}
+			}) {
+				id
+				majorVersion
+				minorVersion
+				status
+				definition
+			}
+			}
+		`,
+		"variables": fmt.Sprintf(`{
+			"dataRegistryId": "%s"
+		}`, DATA_REGISTRY_ID),
+	})
+
+	info(fmt.Sprint("[DEBUG]", "createSchemaDraftResponse:", createSchemaDraftResponse))
+
+	var createSchemaDraftResponseJson types.APICreateSchemaDraftResponse
+	err := json.Unmarshal([]byte(createSchemaDraftResponse), &createSchemaDraftResponseJson)
+	if err == nil && createSchemaDraftResponseJson.Data.UpsertSchemaDraft.Id != "" {
+		SCHEMA_DRAFT_ID = createSchemaDraftResponseJson.Data.UpsertSchemaDraft.Id
+		info(fmt.Sprint("Created schema draft id:", SCHEMA_DRAFT_ID))
+	} else {
+		handleErrResponse(createSchemaDraftResponse)
+	}
+}
+
+func publishSchema() {
+	publishSchemaResponse := fetch(BASE_API_URL, map[string]string{
+		"query": `
+			# Note: Pass in the Schema ID for the 'id' value
+			mutation publishSchemaDraft($schemaDraftId: ID!) {
+			updateSchemaState(input: {
+				id: $schemaDraftId
+				status: published
+			}) {
+				id
+				majorVersion
+				minorVersion
+				status
+			}
+			}
+		`,
+		"variables": fmt.Sprintf(`{
+			"schemaDraftId": "%s"
+		}`, SCHEMA_DRAFT_ID),
+	})
+
+	info(fmt.Sprint("[DEBUG]", "publishSchemaResponse:", publishSchemaResponse))
+
+	var publishSchemaResponseJson types.APIPublishSchemaResponse
+	err := json.Unmarshal([]byte(publishSchemaResponse), &publishSchemaResponseJson)
+	if err == nil && publishSchemaResponseJson.Data.UpdateSchemaState.Id != "" {
+		PUBLISHED_SCHEMA_ID = publishSchemaResponseJson.Data.UpdateSchemaState.Id
+		info(fmt.Sprint("Published schema id:", PUBLISHED_SCHEMA_ID))
+	} else {
+		handleErrResponse(publishSchemaResponse)
+	}
+}
+
+func getRootFolders() {
+	getRootFoldersResponse := fetch(BASE_API_URL, map[string]string{
+		"query": `
+		  query listRootFolders {
+			rootFolders {
+			  id
+			  rootFolderTypeId
+			  name
+			  subfolders {
+				id
+				name
+				childTDOs {
+				  count
+				  records {
+					id
+				  }
+				}
+			  }
+			  childTDOs {
+				count
+				records {
+				  id
+				}
+			  }
+			}
+		  }
+		`,
+	})
+
+	info(fmt.Sprint("[DEBUG]", "getRootFoldersResponse:", getRootFoldersResponse))
+
+	var getRootFoldersResponseJson types.APIGetRootFoldersResponse
+	err := json.Unmarshal([]byte(getRootFoldersResponse), &getRootFoldersResponseJson)
+	if err == nil {
+		if len(getRootFoldersResponseJson.Data.RootFolders) > 0 {
+			ROOT_FOLDER_ID = getRootFoldersResponseJson.Data.RootFolders[0].Id
+			ROOT_FOLDER_TYPE_ID = getRootFoldersResponseJson.Data.RootFolders[0].RootFolderTypeId
+			info(fmt.Sprint("Got root folder id:", ROOT_FOLDER_ID))
+		} else {
+			ROOT_FOLDER_ID = ""
+			info("No root folders found!")
+		}
+	} else {
+		handleErrResponse(getRootFoldersResponse)
+	}
+}
+
+func createTDOFolder() {
+	createTDOFolderResponse := fetch(BASE_API_URL, map[string]string{
+		"query": `
+		  mutation createFolder($parentId: ID!, $rootFolderType: RootFolderType) {
+			createFolder(input: {
+			  name: "Case 1"
+			  description: ""
+			  rootFolderType: $rootFolderType
+			  parentId: $parentId
+			}) {
+			  id
+			  name
+			}
+		  }
+		`,
+		"variables": fmt.Sprintf(`{
+			"parentId": "%s",
+			"rootFolderType": "%s"
+		}`, ROOT_FOLDER_ID, "collection"),
+	})
+
+	info(fmt.Sprint("[DEBUG]", "createTDOFolderResponse:", createTDOFolderResponse))
+
+	var createTDOFolderResponseJson types.APICreateTDOFolderResponse
+	err := json.Unmarshal([]byte(createTDOFolderResponse), &createTDOFolderResponseJson)
+	if err == nil && createTDOFolderResponseJson.Data.CreateFolder.Id != "" {
+		TDO_FOLDER_ID = createTDOFolderResponseJson.Data.CreateFolder.Id
+		info(fmt.Sprint("TDO folder id:", TDO_FOLDER_ID))
+	} else {
+		handleErrResponse(createTDOFolderResponse)
+	}
+}
+
+func moveTDO() {
+	info(fmt.Sprint("[DEBUG]", "moveTDO response:", fetch(BASE_API_URL, map[string]string{
+		"query": `
+			# Note: Use when a TDO is currently filed in a non-root folder and needs to be moved to another folder.
+			mutation moveTdo($tdoId: ID!, $folderId: ID!) {
+			fileTemporalDataObject(input: {
+				tdoId: $tdoId
+				folderId: $folderId
+			}) {
+				id
+			}
+			}
+		`,
+		"variables": fmt.Sprintf(`{
+			"tdoId": "%s",
+			"folderId": "%s"
+		}`, ADHOC_CORE_TARGET_ID, TDO_FOLDER_ID),
+	})))
+}
+
+func addContentTemplateAssetToTDO() {
+	info(fmt.Sprint("[DEBUG]", "addContentTemplateAssetToTDO response:", fetch(BASE_API_URL, map[string]string{
+		"query": `
+		  mutation updateTdoWithSdo($tdoId: ID!, $schemaId: ID!) {
+			updateTDO(
+			  input: {
+				id: $tdoId
+				contentTemplates: [
+				  {
+					schemaId: $schemaId
+					data: {
+					  caseId: "521023"
+					  vehicleId: "412591"
+					  licensePlateNumber: "6XDN071"
+					  stateOfIssue: "CA"
+					  vehicleYear: "2012"
+					  vehicleMake: "Chevrolet"
+					  vehicleModel: "Tahoe"
+					  vehicleStyle: "CARRY-ALL (e.g. BLAZER,JEEP,BRONCO)"
+					  vehicleColor: "WHI/"
+					}
+				  }
+				]
+			  }
+			)
+			{
+			  id
+			  status
+			}
+		  }
+		`,
+		"variables": fmt.Sprintf(`{
+			"tdoId": "%s",
+			"schemaId": "%s"
+		}`, ADHOC_CORE_TARGET_ID, PUBLISHED_SCHEMA_ID),
+	})))
+
+	info(fmt.Sprint("[DEBUG]", "Added content to tdo:", ADHOC_CORE_TARGET_ID, "contentID:", PUBLISHED_SCHEMA_ID))
+}
+
+func searchContentTemplate() {
+	searchContentTemplateResponse := fetch(BASE_API_URL, map[string]string{
+		"query": `
+		  query searchSdo {
+			searchMedia(search:{
+			  index: ["mine"]
+			  query: {
+				operator: "term"
+				field: "sdo_secure_rele_1_nxzzrwsx_4_b.series.title.string" # Specific to SDO schema ## <-- What is this?  Docs just say the whole search object passed into searchMeida is a json object without further def.  Point to https://docs.veritone.com/#/apis/search-quickstart for more info which just 404s
+				value: "Deposition"
+			  }
+			  offset: 0
+			  limit: 10
+			}){
+			  jsondata      
+			}
+		  }
+		`,
+	})
+
+	info(fmt.Sprint("[DEBUG]", "searchContentTemplateResponse:", searchContentTemplateResponse))
+
+	// var searchContentTemplateResponseJson types.APISearchContentTemplateResponse
+	// err := json.Unmarshal([]byte(searchContentTemplateResponse), &searchContentTemplateResponseJson)
+	// if err == nil && searchContentTemplateResponseJson.Data.CreateFolder.Id != "" {
+	// 	TDO_FOLDER_ID = searchContentTemplateResponseJson.Data.CreateFolder.Id
+	// 	info(fmt.Sprint("Got root folder id:", ROOT_FOLDER_ID))
+	// } else {
+	// 	handleErrResponse(searchContentTemplateResponse)
+	// }
+}
+
+//
 // --- MAIN ---
 //
 func main() {
@@ -793,7 +1215,18 @@ func main() {
 	// go func() {
 	// 	testScheduledJobs()
 	// }()
+
 	wg.Wait()
+
+	createDataRegistry()
+	createSchemaDraft()
+	publishSchema()
+	getRootFolders()
+	createTDOFolder()
+	moveTDO()
+	addContentTemplateAssetToTDO()
+	searchContentTemplate()
+
 	info("deployment validated successfully, exiting")
 	os.Exit(0)
 }

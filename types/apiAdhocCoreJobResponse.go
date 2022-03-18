@@ -1,7 +1,8 @@
 package types
 
 type ResponseAdhocCoreJobCreateJob struct {
-	Id string `json:"id"`
+	Id       string `json:"id"`
+	TargetId string `json:"targetId"`
 }
 
 type ResponseAdhocCoreJobData struct {
