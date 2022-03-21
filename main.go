@@ -1138,33 +1138,60 @@ func addContentTemplateAssetToTDO() {
 func searchContentTemplate() {
 	searchContentTemplateResponse := fetch(BASE_API_URL, map[string]string{
 		"query": `
-		  query searchSdo {
-			searchMedia(search:{
-			  index: ["mine"]
-			  query: {
-				operator: "term"
-				field: "sdo_secure_rele_1_nxzzrwsx_4_b.series.title.string" # Specific to SDO schema ## <-- What is this?  Docs just say the whole search object passed into searchMeida is a json object without further def.  Point to https://docs.veritone.com/#/apis/search-quickstart for more info which just 404s
-				value: "Deposition"
+		query myTDO($tdoId: ID!){
+			temporalDataObject(id:$tdoId){
+			  name
+			  id
+			  organizationId
+			  startDateTime
+			  stopDateTime
+			  assets(assetType: "content-template") {
+				records {
+				  id
+				  assetType
+				  contentType
+				  jsondata
+				  jsonstring
+				  signedUri
+				  details
+				}
 			  }
-			  offset: 0
-			  limit: 10
-			}){
-			  jsondata      
+			  folders {
+				id
+				folderPath {
+				  id
+				}
+			  }
+			  jobs {
+				records{
+				  id
+				  sourceAssetId
+				  scheduledJobId
+				  targetId
+				  name
+				  description
+				  clusterId
+				  createdDateTime
+				  status
+				}
+			  }
 			}
 		  }
 		`,
+		"variables": fmt.Sprintf(`{
+			"tdoId": "%s"
+		}`, ADHOC_CORE_TARGET_ID),
 	})
 
 	info(fmt.Sprint("[DEBUG]", "searchContentTemplateResponse:", searchContentTemplateResponse))
 
-	// var searchContentTemplateResponseJson types.APISearchContentTemplateResponse
-	// err := json.Unmarshal([]byte(searchContentTemplateResponse), &searchContentTemplateResponseJson)
-	// if err == nil && searchContentTemplateResponseJson.Data.CreateFolder.Id != "" {
-	// 	TDO_FOLDER_ID = searchContentTemplateResponseJson.Data.CreateFolder.Id
-	// 	info(fmt.Sprint("Got root folder id:", ROOT_FOLDER_ID))
-	// } else {
-	// 	handleErrResponse(searchContentTemplateResponse)
-	// }
+	var searchContentTemplateResponseJson types.APISearchContentTemplateResponse
+	err := json.Unmarshal([]byte(searchContentTemplateResponse), &searchContentTemplateResponseJson)
+	if err == nil && len(searchContentTemplateResponseJson.Data.TemporalDataObject.Assets.Records) > 0 {
+		info(fmt.Sprint("Vehicle SDO signed URI: ", searchContentTemplateResponseJson.Data.TemporalDataObject.Assets.Records[0].SignedUri))
+	} else {
+		handleErrResponse(searchContentTemplateResponse)
+	}
 }
 
 //
