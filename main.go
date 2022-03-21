@@ -127,7 +127,7 @@ func handleErrResponseCore(errResponse string, errHandler func(err error)) {
 		//info(fmt.Sprint("[DEBUG] post body:", string(postBody)))
 		errHandler(errors.New(fmt.Sprint("returned from api.", errsMsg)))
 	} else {
-		info(fmt.Sprint("[DEBUG] errResponse:", errResponse))
+		//info(fmt.Sprint("[DEBUG] errResponse:", errResponse))
 		panic(err)
 	}
 }
@@ -775,7 +775,7 @@ func createDataRegistry() {
 		`,
 	})
 
-	info(fmt.Sprint("[DEBUG]", "createDataRegistryResponse:", createDataRegistryResponse))
+	//info(fmt.Sprint("[DEBUG]", "createDataRegistryResponse:", createDataRegistryResponse))
 
 	var createDataRegistryResponseJson types.APICreateDataRegistryResponse
 	err := json.Unmarshal([]byte(createDataRegistryResponse), &createDataRegistryResponseJson)
@@ -950,7 +950,7 @@ func createSchemaDraft() {
 		}`, DATA_REGISTRY_ID),
 	})
 
-	info(fmt.Sprint("[DEBUG]", "createSchemaDraftResponse:", createSchemaDraftResponse))
+	//info(fmt.Sprint("[DEBUG]", "createSchemaDraftResponse:", createSchemaDraftResponse))
 
 	var createSchemaDraftResponseJson types.APICreateSchemaDraftResponse
 	err := json.Unmarshal([]byte(createSchemaDraftResponse), &createSchemaDraftResponseJson)
@@ -983,7 +983,7 @@ func publishSchema() {
 		}`, SCHEMA_DRAFT_ID),
 	})
 
-	info(fmt.Sprint("[DEBUG]", "publishSchemaResponse:", publishSchemaResponse))
+	//info(fmt.Sprint("[DEBUG]", "publishSchemaResponse:", publishSchemaResponse))
 
 	var publishSchemaResponseJson types.APIPublishSchemaResponse
 	err := json.Unmarshal([]byte(publishSchemaResponse), &publishSchemaResponseJson)
@@ -1024,7 +1024,7 @@ func getRootFolders() {
 		`,
 	})
 
-	info(fmt.Sprint("[DEBUG]", "getRootFoldersResponse:", getRootFoldersResponse))
+	//info(fmt.Sprint("[DEBUG]", "getRootFoldersResponse:", getRootFoldersResponse))
 
 	var getRootFoldersResponseJson types.APIGetRootFoldersResponse
 	err := json.Unmarshal([]byte(getRootFoldersResponse), &getRootFoldersResponseJson)
@@ -1063,7 +1063,7 @@ func createTDOFolder() {
 		}`, ROOT_FOLDER_ID, "collection"),
 	})
 
-	info(fmt.Sprint("[DEBUG]", "createTDOFolderResponse:", createTDOFolderResponse))
+	//info(fmt.Sprint("[DEBUG]", "createTDOFolderResponse:", createTDOFolderResponse))
 
 	var createTDOFolderResponseJson types.APICreateTDOFolderResponse
 	err := json.Unmarshal([]byte(createTDOFolderResponse), &createTDOFolderResponseJson)
@@ -1076,7 +1076,7 @@ func createTDOFolder() {
 }
 
 func moveTDO() {
-	info(fmt.Sprint("[DEBUG]", "moveTDO response:", fetch(BASE_API_URL, map[string]string{
+	/*moveTDOResponse :=*/ fetch(BASE_API_URL, map[string]string{
 		"query": `
 			# Note: Use when a TDO is currently filed in a non-root folder and needs to be moved to another folder.
 			mutation moveTdo($tdoId: ID!, $folderId: ID!) {
@@ -1092,11 +1092,14 @@ func moveTDO() {
 			"tdoId": "%s",
 			"folderId": "%s"
 		}`, ADHOC_CORE_TARGET_ID, TDO_FOLDER_ID),
-	})))
+	})
+
+	//info(fmt.Sprint("[DEBUG]", "moveTDO response:", moveTDOResponse))
+
 }
 
 func addContentTemplateAssetToTDO() {
-	info(fmt.Sprint("[DEBUG]", "addContentTemplateAssetToTDO response:", fetch(BASE_API_URL, map[string]string{
+	/*addContentTemplateAssetToTDOResponse :=*/ fetch(BASE_API_URL, map[string]string{
 		"query": `
 		  mutation updateTdoWithSdo($tdoId: ID!, $schemaId: ID!) {
 			updateTDO(
@@ -1130,9 +1133,11 @@ func addContentTemplateAssetToTDO() {
 			"tdoId": "%s",
 			"schemaId": "%s"
 		}`, ADHOC_CORE_TARGET_ID, PUBLISHED_SCHEMA_ID),
-	})))
+	})
 
-	info(fmt.Sprint("[DEBUG]", "Added content to tdo:", ADHOC_CORE_TARGET_ID, "contentID:", PUBLISHED_SCHEMA_ID))
+	//info(fmt.Sprint("[DEBUG]", "addContentTemplateAssetToTDO response:", addContentTemplateAssetToTDOResponse))
+
+	info(fmt.Sprint("Added content to tdo:", ADHOC_CORE_TARGET_ID, "contentID:", PUBLISHED_SCHEMA_ID))
 }
 
 func searchContentTemplate() {
@@ -1183,7 +1188,7 @@ func searchContentTemplate() {
 		}`, ADHOC_CORE_TARGET_ID),
 	})
 
-	info(fmt.Sprint("[DEBUG]", "searchContentTemplateResponse:", searchContentTemplateResponse))
+	//info(fmt.Sprint("[DEBUG]", "searchContentTemplateResponse:", searchContentTemplateResponse))
 
 	var searchContentTemplateResponseJson types.APISearchContentTemplateResponse
 	err := json.Unmarshal([]byte(searchContentTemplateResponse), &searchContentTemplateResponseJson)
